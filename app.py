@@ -1,83 +1,84 @@
 import streamlit as st
+import urllib.request
+import re
 import pandas as pd
 from collections import Counter
-import os
+from datetime import datetime
 
 # 1. 網頁基本設定
-st.set_page_config(page_title="539 AI 智能預測", page_icon="🔮", layout="centered")
+st.set_page_config(page_title="539 AI 自動更新中心", page_icon="🔮", layout="centered")
 
-# 自定義標題樣式
-st.markdown("<h1 style='text-align: center; color: #ff4b4b;'>🔮 539 AI 數據研究中心</h1>", unsafe_allow_html=True)
-st.write(f"<div style='text-align: center;'>數據對接：發財網 (pilio.idv.tw) 500期大數據</div>", unsafe_allow_html=True)
+# --- 自動抓取數據函數 (爬取發財網) ---
+@st.cache_data(ttl=3600)  # 每小時自動更新一次
+def fetch_lto_data():
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    all_rows = []
+    try:
+        # 抓取前 3 頁數據以供分析
+        for p in range(1, 4):
+            url = f"https://www.pilio.idv.tw/lto539/list.asp?indexpage={p}"
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=15) as res:
+                html = res.read().decode('utf-8')
+            
+            # 正則表達式匹配日期與號碼
+            matches = re.findall(r'(\d{2}/\d{2}).*?(\d{1,2}\s*,\s*\d{1,2}\s*,\s*\d{1,2}\s*,\s*\d{1,2}\s*,\s*\d{1,2})', html, re.S)
+            for m in matches:
+                date = f"2026/{m[0]}"
+                nums = [int(n.strip()) for n in m[1].split(',')]
+                all_rows.append([date] + nums)
+        return all_rows
+    except Exception as e:
+        return None
+
+# --- 網頁介面設計 ---
+st.markdown("<h1 style='text-align: center; color: #ff4b4b;'>🔮 539 AI 智能研發系統</h1>", unsafe_allow_html=True)
+st.markdown(f"<div style='text-align: center;'>數據狀態：🟢 自動同步發財網最新開獎</div>", unsafe_allow_html=True)
 st.divider()
 
-# 2. 核心邏輯：讀取資料並分析
-def run_prediction():
-    if not os.path.exists('history539.csv'):
-        st.error("⚠️ 找不到 history539.csv 檔案，請確認已上傳至 GitHub 儲存庫。")
-        return None
+data = fetch_lto_data()
 
-    try:
-        # 讀取 CSV
-        df = pd.read_csv('history539.csv', encoding='utf-8-sig')
-        
-        # 取得最新一期資訊用於網頁顯示驗證
-        latest_date = str(df.iloc[0, 0])
-        latest_nums = [str(x).zfill(2) for x in df.iloc[0, 1:6].values]
-        
-        # --- AI 演算法：計算 500 期規律 ---
-        # 提取所有歷史號碼進行頻率統計
-        all_history = df.iloc[:, 1:6].values.flatten()
-        counts = Counter(all_history)
-        
-        scores = {i: counts.get(i, 0) * 10 for i in range(1, 40)}
-        
-        # 尾數加權邏輯 (根據 2, 8, 9 尾進行強化)
-        for i in range(1, 40):
-            if i % 10 in [2, 8, 9]: scores[i] += 45
-            
-        # 拖牌關聯分析 (根據最新一期)
-        current_latest = [int(x) for x in latest_nums]
-        for n in current_latest:
-            if n + 1 <= 39: scores[n+1] += 30
-            if n - 1 >= 1: scores[n-1] += 30
+if data:
+    # 顯示最新一期資訊
+    latest = data[0]
+    st.info(f"📅 **官方最新開獎日期**：{latest[0]} \n\n 🎰 **最新開獎號碼**：{', '.join([f'{x:02d}' for x in latest[1:]])}")
 
-        # 排序選出最高分的號碼
-        sorted_res = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-        cars = sorted([x[0] for x in sorted_res[:2]])
-        combos = sorted([x[0] for x in sorted_res[2:7]])
-
-        return {
-            "date": latest_date,
-            "nums": latest_nums,
-            "cars": cars,
-            "combos": combos
-        }
-    except Exception as e:
-        st.error(f"❌ 數據讀取出錯: {e}")
-        return None
-
-# 3. 執行分析並渲染網頁
-result = run_prediction()
-
-if result:
-    # 顯示目前校正的號碼 (讓朋友確認數據沒錯)
-    st.info(f"📅 **資料庫最新日期**：{result['date']} \n\n 🎰 **開出號碼**：{', '.join(result['nums'])}")
+    # --- AI 核心演算法 ---
+    df = pd.DataFrame(data, columns=['date', 'n1', 'n2', 'n3', 'n4', 'n5'])
+    all_history = df.iloc[:, 1:6].values.flatten()
+    counts = Counter(all_history)
     
+    # 計算積分
+    scores = {i: counts.get(i, 0) * 12 for i in range(1, 40)}
+    
+    # 推薦尾數權重 (2, 8, 9 尾)
+    for i in range(1, 40):
+        if i % 10 in [2, 8, 9]: scores[i] += 50
+    
+    # 關聯推算 (依據最新一期)
+    for n in latest[1:]:
+        if n+1 <= 39: scores[n+1] += 35
+        if n-1 >= 1: scores[n-1] += 35
+
+    # 產出推薦號碼
+    sorted_res = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    cars = sorted([x[0] for x in sorted_res[:2]])
+    combos = sorted([x[0] for x in sorted_res[2:7]])
+
+    # 顯示結果
     st.divider()
-    
-    # 顯示專車
     st.subheader("💎 今日 AI 推薦【專車】")
-    c1, c2 = st.columns(2)
-    c1.metric("第一支", f"{result['cars'][0]:02d}")
-    c2.metric("第二支", f"{result['cars'][1]:02d}")
-    
+    col1, col2 = st.columns(2)
+    col1.metric("推薦一", f"{cars[0]:02d}")
+    col2.metric("推薦二", f"{cars[1]:02d}")
+
     st.divider()
-    
-    # 顯示連碰
     st.subheader("🔥 今日 AI 推薦【連碰】")
-    combo_str = " , ".join([f"{x:02d}" for x in result['combos']])
-    st.markdown(f"## {combo_str}")
-    
+    st.markdown(f"### ` {' , '.join([f'{x:02d}' for x in combos])} `")
+
     st.divider()
-    st.caption("💡 免責聲明：本工具僅供大數據研究參考，不保證獲利，請理性對待。")
+    st.caption(f"系統自動更新時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    st.caption("本系統基於歷史大數據規律分析，僅供參考。")
+
+else:
+    st.error("❌ 目前無法連線至發財網抓取數據。請檢查雲端伺服器網路狀態。")
